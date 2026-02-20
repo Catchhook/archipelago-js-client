@@ -1,0 +1,38 @@
+{
+  "name": "@archipelago/client",
+  "version": "0.1.0",
+  "description": "Core client utilities for Archipelago islands",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "yarn clean && tsc -p tsconfig.build.json",
+    "test": "vitest run packages/client/test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robrace/archipelago.git",
+    "directory": "packages/client"
+  },
+  "bugs": {
+    "url": "https://github.com/robrace/archipelago/issues"
+  },
+  "homepage": "https://github.com/robrace/archipelago/tree/main/packages/client"
+}
