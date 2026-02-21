@@ -1,11 +1,11 @@
-# @archipelago/client
+# @archipelago-js/client
 
 Core client utilities for Archipelago islands.
 
 ## Install
 
 ```bash
-yarn add @archipelago/client
+yarn add @archipelago-js/client
 ```
 
 ## API

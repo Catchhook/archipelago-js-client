@@ -36,9 +36,46 @@ describe("parseIslandResponse", () => {
     })
   })
 
+  it("accepts ok payload without version", () => {
+    const response = parseIslandResponse({
+      status: "ok",
+      props: { members: [] }
+    })
+
+    expect(response).toEqual({
+      status: "ok",
+      props: { members: [] },
+      version: undefined
+    })
+  })
+
   it("throws for invalid payload", () => {
     expect(() => parseIslandResponse({ status: "ok", props: [] })).toThrow(
       /Invalid ok payload/
     )
+  })
+
+  it("throws for invalid redirect payload", () => {
+    expect(() => parseIslandResponse({ status: "redirect", location: 123 })).toThrow(
+      /Invalid redirect payload/
+    )
+  })
+
+  it("throws for invalid error payload shape", () => {
+    expect(() =>
+      parseIslandResponse({
+        status: "error",
+        errors: { email: "not-an-array" }
+      })
+    ).toThrow(/Invalid error payload/)
+  })
+
+  it("throws for unknown status", () => {
+    expect(() =>
+      parseIslandResponse({
+        status: "mystery",
+        props: {}
+      })
+    ).toThrow(/Unknown island response status/)
   })
 })

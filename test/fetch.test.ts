@@ -73,6 +73,34 @@ describe("islandFetch", () => {
     delete (window as typeof window & { Turbo?: { visit: (path: string) => void } }).Turbo
   })
 
+  it("falls back to window.location.assign when Turbo is unavailable", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ status: "redirect", location: "/teams/3" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    })
+
+    delete (window as typeof window & { Turbo?: { visit: (path: string) => void } }).Turbo
+    const assignSpy = vi.fn()
+    const originalLocation = window.location
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        assign: assignSpy
+      }
+    })
+
+    await islandFetch("TeamMembers", "add_member", {}, { fetchImpl })
+
+    expect(assignSpy).toHaveBeenCalledWith("/teams/3")
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation
+    })
+  })
+
   it("handles empty bodies as ok response", async () => {
     const fetchImpl = vi.fn(async () => {
       return new Response("", { status: 200, headers: { "content-length": "0" } })
@@ -88,6 +116,32 @@ describe("islandFetch", () => {
     await expect(islandFetch("TeamMembers", "add_member", {}, { fetchImpl })).resolves.toEqual({
       status: "forbidden"
     })
+  })
+
+  it("parses non-empty forbidden responses as normal payloads", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ status: "error", errors: { base: ["denied"] } }), {
+        status: 403,
+        headers: { "content-type": "application/json" }
+      })
+    })
+
+    await expect(islandFetch("TeamMembers", "add_member", {}, { fetchImpl })).resolves.toEqual({
+      status: "error",
+      errors: { base: ["denied"] }
+    })
+  })
+
+  it("treats whitespace-only response body as empty ok", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response("   \n\t  ", {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    })
+
+    const response = await islandFetch("TeamMembers", "add_member", {}, { fetchImpl })
+    expect(response.status).toBe("ok")
   })
 
   it("refreshes csrf cache on 422 responses", async () => {

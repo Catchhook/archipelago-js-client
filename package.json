@@ -1,5 +1,5 @@
 {
-  "name": "@archipelago/client",
+  "name": "@archipelago-js/client",
   "version": "0.1.0",
   "description": "Core client utilities for Archipelago islands",
   "license": "MIT",
