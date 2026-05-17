@@ -5,6 +5,12 @@ import {
   parseIslandResponse
 } from "./types"
 
+export type UploadProgress = {
+  percentage: number
+  loaded: number
+  total: number | undefined
+}
+
 export type IslandFetchOptions = {
   endpoint?: string
   fixedParams?: Record<string, unknown>
@@ -14,6 +20,7 @@ export type IslandFetchOptions = {
   fetchImpl?: typeof fetch
   navigate?: (location: string) => void
   stream?: string
+  onUploadProgress?: (progress: UploadProgress) => void
 }
 
 export type IslandFetchPayload = Record<string, unknown>
@@ -51,16 +58,104 @@ export function buildIslandPayload(
   }
 }
 
+function xhrFetch(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  signal: AbortSignal | undefined,
+  onUploadProgress: (progress: UploadProgress) => void
+): Promise<{ status: number; text: string; getHeader: (name: string) => string | null }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("POST", url, true)
+    xhr.withCredentials = true
+
+    for (const [key, value] of Object.entries(headers)) {
+      xhr.setRequestHeader(key, value)
+    }
+
+    xhr.upload.addEventListener("progress", (event) => {
+      onUploadProgress({
+        percentage: event.lengthComputable ? Math.round((event.loaded / event.total) * 100) : 0,
+        loaded: event.loaded,
+        total: event.lengthComputable ? event.total : undefined
+      })
+    })
+
+    xhr.addEventListener("load", () => {
+      resolve({
+        status: xhr.status,
+        text: xhr.responseText,
+        getHeader: (name: string) => xhr.getResponseHeader(name)
+      })
+    })
+
+    xhr.addEventListener("error", () => {
+      reject(new ArchipelagoTransportError("Network request failed"))
+    })
+
+    xhr.addEventListener("abort", () => {
+      reject(new DOMException("The operation was aborted.", "AbortError"))
+    })
+
+    if (signal) {
+      if (signal.aborted) {
+        xhr.abort()
+        return
+      }
+      signal.addEventListener("abort", () => xhr.abort(), { once: true })
+    }
+
+    xhr.send(body)
+  })
+}
+
+function parseResponseText(
+  text: string,
+  statusCode: number,
+  navigate: (location: string) => void
+): IslandResponse {
+  if (text.trim().length === 0) {
+    return { status: "ok", props: {}, version: Date.now() }
+  }
+
+  if (looksLikeHtml(text)) {
+    throw new ArchipelagoTransportError("Received HTML instead of JSON", {
+      statusCode,
+      responseBody: text.slice(0, 500)
+    })
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (error) {
+    throw new ArchipelagoTransportError("Failed to parse JSON response", {
+      statusCode,
+      responseBody: text.slice(0, 500),
+      cause: error
+    })
+  }
+
+  const result = parseIslandResponse(parsed)
+
+  if (result.status === "redirect") {
+    navigate(result.location)
+  }
+
+  return result
+}
+
 export async function islandFetch(
   component: string,
   operation: string,
   payload: IslandFetchPayload = {},
   options: IslandFetchOptions = {}
 ): Promise<IslandResponse> {
-  const fetchImpl = options.fetchImpl ?? fetch
   const endpoint = options.endpoint ?? "/islands"
   const mergedPayload = buildIslandPayload(payload, options.fixedParams, options.overridePayload)
   const csrfToken = getCsrfToken()
+  const navigate = options.navigate ?? defaultNavigate
 
   const requestHeaders: Record<string, string> = {
     "content-type": "application/json",
@@ -70,18 +165,40 @@ export async function islandFetch(
     ...(options.headers ?? {})
   }
 
+  const url = `${endpoint}/${encodeURIComponent(component)}/${encodeURIComponent(operation)}`
+  const body = JSON.stringify(mergedPayload)
+
+  if (options.onUploadProgress) {
+    const xhrResult = await xhrFetch(url, requestHeaders, body, options.signal, options.onUploadProgress)
+
+    if (xhrResult.status === 422) {
+      clearCsrfCache()
+    }
+
+    const contentLength = xhrResult.getHeader("content-length")
+    const hasBody = contentLength == null || contentLength !== "0"
+
+    if (xhrResult.status === 403 && !hasBody) {
+      return { status: "forbidden" }
+    }
+
+    if (!hasBody) {
+      return { status: "ok", props: {}, version: Date.now() }
+    }
+
+    return parseResponseText(xhrResult.text, xhrResult.status, navigate)
+  }
+
+  const fetchImpl = options.fetchImpl ?? fetch
   let response: Response
   try {
-    response = await fetchImpl(
-      `${endpoint}/${encodeURIComponent(component)}/${encodeURIComponent(operation)}`,
-      {
-        method: "POST",
-        signal: options.signal,
-        credentials: "same-origin",
-        headers: requestHeaders,
-        body: JSON.stringify(mergedPayload)
-      }
-    )
+    response = await fetchImpl(url, {
+      method: "POST",
+      signal: options.signal,
+      credentials: "same-origin",
+      headers: requestHeaders,
+      body
+    })
   } catch (error) {
     throw new ArchipelagoTransportError("Network request failed", { cause: error })
   }
@@ -108,34 +225,5 @@ export async function islandFetch(
     })
   }
 
-  if (text.trim().length === 0) {
-    return { status: "ok", props: {}, version: Date.now() }
-  }
-
-  if (looksLikeHtml(text)) {
-    throw new ArchipelagoTransportError("Received HTML instead of JSON", {
-      statusCode: response.status,
-      responseBody: text.slice(0, 500)
-    })
-  }
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch (error) {
-    throw new ArchipelagoTransportError("Failed to parse JSON response", {
-      statusCode: response.status,
-      responseBody: text.slice(0, 500),
-      cause: error
-    })
-  }
-
-  const result = parseIslandResponse(parsed)
-
-  if (result.status === "redirect") {
-    const navigate = options.navigate ?? defaultNavigate
-    navigate(result.location)
-  }
-
-  return result
+  return parseResponseText(text, response.status, navigate)
 }

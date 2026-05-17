@@ -36,7 +36,11 @@ const response = await islandFetch("TeamMembers", "add_member", payload, {
   signal: abortController.signal,
   stream: "TeamMembers:42",     // sent as X-Archipelago-Stream header
   navigate: (url) => { ... },   // called on redirect responses (default: Turbo.visit or location.assign)
-  fetchImpl: fetch               // swap fetch for testing
+  fetchImpl: fetch,              // swap fetch for testing
+  onUploadProgress: (progress) => {
+    // progress.percentage (0-100), progress.loaded, progress.total
+    // automatically switches to XHR transport when provided
+  }
 })
 ```
 
@@ -166,3 +170,4 @@ clearCsrfCache()     // clear cache (next call reads from DOM)
 | `IslandForbiddenResponse`   | `{ status: "forbidden" }`                        |
 | `IslandFetchOptions`        | Options type for `islandFetch`                   |
 | `IslandFetchPayload`        | Payload type (`Record<string, unknown>`)         |
+| `UploadProgress`            | `{ percentage, loaded, total }` for upload tracking |

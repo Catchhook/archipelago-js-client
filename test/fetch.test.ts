@@ -233,4 +233,118 @@ describe("islandFetch", () => {
       ArchipelagoTransportError
     )
   })
+
+  it("uses XHR transport and reports progress when onUploadProgress is provided", async () => {
+    const progressEvents: Array<{ percentage: number; loaded: number; total: number | undefined }> = []
+
+    const originalXHR = globalThis.XMLHttpRequest
+    const mockXHR = {
+      open: vi.fn(),
+      send: vi.fn(),
+      setRequestHeader: vi.fn(),
+      withCredentials: false,
+      status: 200,
+      responseText: JSON.stringify({ status: "ok", props: { x: 1 }, version: 1 }),
+      upload: {
+        addEventListener: vi.fn()
+      },
+      addEventListener: vi.fn(),
+      getResponseHeader: vi.fn().mockReturnValue(null)
+    }
+
+    globalThis.XMLHttpRequest = vi.fn(() => mockXHR) as unknown as typeof XMLHttpRequest
+
+    const promise = islandFetch("TeamMembers", "add_member", { email: "a@b.c" }, {
+      onUploadProgress: (p) => progressEvents.push(p)
+    })
+
+    const uploadProgressHandler = mockXHR.upload.addEventListener.mock.calls.find(
+      (c: unknown[]) => c[0] === "progress"
+    )?.[1] as (event: { lengthComputable: boolean; loaded: number; total: number }) => void
+
+    uploadProgressHandler({ lengthComputable: true, loaded: 50, total: 100 })
+    uploadProgressHandler({ lengthComputable: true, loaded: 100, total: 100 })
+
+    const loadHandler = mockXHR.addEventListener.mock.calls.find(
+      (c: unknown[]) => c[0] === "load"
+    )?.[1] as () => void
+
+    loadHandler()
+
+    const result = await promise
+
+    expect(result).toEqual({ status: "ok", props: { x: 1 }, version: 1 })
+    expect(progressEvents).toEqual([
+      { percentage: 50, loaded: 50, total: 100 },
+      { percentage: 100, loaded: 100, total: 100 }
+    ])
+    expect(mockXHR.open).toHaveBeenCalledWith("POST", "/islands/TeamMembers/add_member", true)
+    expect(mockXHR.setRequestHeader).toHaveBeenCalledWith("content-type", "application/json")
+
+    globalThis.XMLHttpRequest = originalXHR
+  })
+
+  it("XHR transport handles error events as ArchipelagoTransportError", async () => {
+    const originalXHR = globalThis.XMLHttpRequest
+    const mockXHR = {
+      open: vi.fn(),
+      send: vi.fn(),
+      setRequestHeader: vi.fn(),
+      withCredentials: false,
+      upload: { addEventListener: vi.fn() },
+      addEventListener: vi.fn(),
+      getResponseHeader: vi.fn().mockReturnValue(null)
+    }
+
+    globalThis.XMLHttpRequest = vi.fn(() => mockXHR) as unknown as typeof XMLHttpRequest
+
+    const promise = islandFetch("TeamMembers", "add_member", {}, {
+      onUploadProgress: () => {}
+    })
+
+    const errorHandler = mockXHR.addEventListener.mock.calls.find(
+      (c: unknown[]) => c[0] === "error"
+    )?.[1] as () => void
+
+    errorHandler()
+
+    await expect(promise).rejects.toThrow(ArchipelagoTransportError)
+
+    globalThis.XMLHttpRequest = originalXHR
+  })
+
+  it("XHR transport aborts when signal is already aborted", async () => {
+    const originalXHR = globalThis.XMLHttpRequest
+    const mockXHR = {
+      open: vi.fn(),
+      send: vi.fn(),
+      abort: vi.fn(),
+      setRequestHeader: vi.fn(),
+      withCredentials: false,
+      upload: { addEventListener: vi.fn() },
+      addEventListener: vi.fn(),
+      getResponseHeader: vi.fn().mockReturnValue(null)
+    }
+
+    globalThis.XMLHttpRequest = vi.fn(() => mockXHR) as unknown as typeof XMLHttpRequest
+
+    const controller = new AbortController()
+    controller.abort()
+
+    const promise = islandFetch("TeamMembers", "add_member", {}, {
+      signal: controller.signal,
+      onUploadProgress: () => {}
+    })
+
+    const abortHandler = mockXHR.addEventListener.mock.calls.find(
+      (c: unknown[]) => c[0] === "abort"
+    )?.[1] as () => void
+
+    abortHandler()
+
+    await expect(promise).rejects.toThrow("aborted")
+    expect(mockXHR.abort).toHaveBeenCalled()
+
+    globalThis.XMLHttpRequest = originalXHR
+  })
 })
