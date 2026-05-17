@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { clearCsrfCache } from "../src/csrf"
 import { buildIslandPayload, islandFetch } from "../src/fetch"
+import { ArchipelagoTransportError } from "../src/types"
 
 describe("buildIslandPayload", () => {
   it("respects precedence fixed -> payload -> override", () => {
@@ -160,5 +161,76 @@ describe("islandFetch", () => {
 
     const secondCall = fetchImpl.mock.calls[1] as [RequestInfo | URL, RequestInit]
     expect(secondCall[1].headers).toMatchObject({ "x-csrf-token": "new-token" })
+  })
+
+  it("sends X-Archipelago-Stream header when stream option provided", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ status: "ok", props: {}, version: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    })
+
+    await islandFetch("TeamMembers", "add_member", {}, { fetchImpl, stream: "TeamMembers:42" })
+
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit]
+    expect(init.headers).toMatchObject({ "x-archipelago-stream": "TeamMembers:42" })
+  })
+
+  it("does not send stream header when stream option is not provided", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ status: "ok", props: {}, version: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    })
+
+    await islandFetch("TeamMembers", "add_member", {}, { fetchImpl })
+
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit]
+    expect((init.headers as Record<string, string>)["x-archipelago-stream"]).toBeUndefined()
+  })
+
+  it("throws ArchipelagoTransportError for HTML responses", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response("<!DOCTYPE html><html><body>Error</body></html>", {
+        status: 500,
+        headers: { "content-type": "text/html" }
+      })
+    })
+
+    await expect(islandFetch("TeamMembers", "add_member", {}, { fetchImpl })).rejects.toThrow(
+      ArchipelagoTransportError
+    )
+
+    try {
+      await islandFetch("TeamMembers", "add_member", {}, { fetchImpl })
+    } catch (error) {
+      expect((error as ArchipelagoTransportError).statusCode).toBe(500)
+      expect((error as ArchipelagoTransportError).message).toContain("HTML")
+    }
+  })
+
+  it("throws ArchipelagoTransportError for invalid JSON responses", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response("not-json-{{{", {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    })
+
+    await expect(islandFetch("TeamMembers", "add_member", {}, { fetchImpl })).rejects.toThrow(
+      ArchipelagoTransportError
+    )
+  })
+
+  it("throws ArchipelagoTransportError on network failure", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("Failed to fetch")
+    })
+
+    await expect(islandFetch("TeamMembers", "add_member", {}, { fetchImpl })).rejects.toThrow(
+      ArchipelagoTransportError
+    )
   })
 })

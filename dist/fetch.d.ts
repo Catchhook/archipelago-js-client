@@ -7,6 +7,7 @@ export type IslandFetchOptions = {
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
     navigate?: (location: string) => void;
+    stream?: string;
 };
 export type IslandFetchPayload = Record<string, unknown>;
 export declare function buildIslandPayload(payload?: IslandFetchPayload, fixedParams?: Record<string, unknown>, overridePayload?: Record<string, unknown>): Record<string, unknown>;

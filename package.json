@@ -1,6 +1,6 @@
 {
   "name": "@archipelago-js/client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Core client utilities for Archipelago islands",
   "license": "MIT",
   "type": "module",

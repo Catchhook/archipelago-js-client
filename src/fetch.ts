@@ -1,5 +1,9 @@
 import { clearCsrfCache, getCsrfToken } from "./csrf"
-import { IslandResponse, parseIslandResponse } from "./types"
+import {
+  ArchipelagoTransportError,
+  IslandResponse,
+  parseIslandResponse
+} from "./types"
 
 export type IslandFetchOptions = {
   endpoint?: string
@@ -9,6 +13,7 @@ export type IslandFetchOptions = {
   signal?: AbortSignal
   fetchImpl?: typeof fetch
   navigate?: (location: string) => void
+  stream?: string
 }
 
 export type IslandFetchPayload = Record<string, unknown>
@@ -27,6 +32,11 @@ function defaultNavigate(location: string): void {
 function hasContent(response: Response): boolean {
   const contentLength = response.headers.get("content-length")
   return contentLength == null || contentLength !== "0"
+}
+
+function looksLikeHtml(text: string): boolean {
+  const trimmed = text.trimStart()
+  return trimmed.startsWith("<!") || trimmed.startsWith("<html") || trimmed.startsWith("<HTML")
 }
 
 export function buildIslandPayload(
@@ -52,24 +62,31 @@ export async function islandFetch(
   const mergedPayload = buildIslandPayload(payload, options.fixedParams, options.overridePayload)
   const csrfToken = getCsrfToken()
 
-  const response = await fetchImpl(
-    `${endpoint}/${encodeURIComponent(component)}/${encodeURIComponent(operation)}`,
-    {
-      method: "POST",
-      signal: options.signal,
-      credentials: "same-origin",
-      headers: {
-        "content-type": "application/json",
-        "x-requested-with": "XMLHttpRequest",
-        ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
-        ...(options.headers ?? {})
-      },
-      body: JSON.stringify(mergedPayload)
-    }
-  )
+  const requestHeaders: Record<string, string> = {
+    "content-type": "application/json",
+    "x-requested-with": "XMLHttpRequest",
+    ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
+    ...(options.stream ? { "x-archipelago-stream": options.stream } : {}),
+    ...(options.headers ?? {})
+  }
+
+  let response: Response
+  try {
+    response = await fetchImpl(
+      `${endpoint}/${encodeURIComponent(component)}/${encodeURIComponent(operation)}`,
+      {
+        method: "POST",
+        signal: options.signal,
+        credentials: "same-origin",
+        headers: requestHeaders,
+        body: JSON.stringify(mergedPayload)
+      }
+    )
+  } catch (error) {
+    throw new ArchipelagoTransportError("Network request failed", { cause: error })
+  }
 
   if (response.status === 422) {
-    // Rails may rotate CSRF token; force re-read on next request.
     clearCsrfCache()
   }
 
@@ -81,17 +98,44 @@ export async function islandFetch(
     return { status: "ok", props: {}, version: Date.now() }
   }
 
-  const text = await response.text()
+  let text: string
+  try {
+    text = await response.text()
+  } catch (error) {
+    throw new ArchipelagoTransportError("Failed to read response body", {
+      statusCode: response.status,
+      cause: error
+    })
+  }
+
   if (text.trim().length === 0) {
     return { status: "ok", props: {}, version: Date.now() }
   }
 
-  const parsed = parseIslandResponse(JSON.parse(text))
-
-  if (parsed.status === "redirect") {
-    const navigate = options.navigate ?? defaultNavigate
-    navigate(parsed.location)
+  if (looksLikeHtml(text)) {
+    throw new ArchipelagoTransportError("Received HTML instead of JSON", {
+      statusCode: response.status,
+      responseBody: text.slice(0, 500)
+    })
   }
 
-  return parsed
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (error) {
+    throw new ArchipelagoTransportError("Failed to parse JSON response", {
+      statusCode: response.status,
+      responseBody: text.slice(0, 500),
+      cause: error
+    })
+  }
+
+  const result = parseIslandResponse(parsed)
+
+  if (result.status === "redirect") {
+    const navigate = options.navigate ?? defaultNavigate
+    navigate(result.location)
+  }
+
+  return result
 }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { parseIslandResponse } from "../src/types"
+import {
+  ArchipelagoTransportError,
+  FORM_ERROR,
+  parseIslandResponse
+} from "../src/types"
 
 describe("parseIslandResponse", () => {
   it("parses ok payload", () => {
@@ -42,11 +46,11 @@ describe("parseIslandResponse", () => {
       props: { members: [] }
     })
 
-    expect(response).toEqual({
-      status: "ok",
-      props: { members: [] },
-      version: undefined
-    })
+    expect(response.status).toBe("ok")
+    if (response.status === "ok") {
+      expect(response.props).toEqual({ members: [] })
+      expect(typeof response.version).toBe("number")
+    }
   })
 
   it("throws for invalid payload", () => {
@@ -77,5 +81,45 @@ describe("parseIslandResponse", () => {
         props: {}
       })
     ).toThrow(/Unknown island response status/)
+  })
+
+  it("throws ArchipelagoTransportError on invalid payloads", () => {
+    try {
+      parseIslandResponse("not an object")
+    } catch (error) {
+      expect(error).toBeInstanceOf(ArchipelagoTransportError)
+      expect((error as ArchipelagoTransportError).name).toBe("ArchipelagoTransportError")
+      return
+    }
+    throw new Error("Expected error to be thrown")
+  })
+})
+
+describe("FORM_ERROR", () => {
+  it("equals _base", () => {
+    expect(FORM_ERROR).toBe("_base")
+  })
+})
+
+describe("ArchipelagoTransportError", () => {
+  it("captures statusCode and responseBody", () => {
+    const error = new ArchipelagoTransportError("test error", {
+      statusCode: 500,
+      responseBody: "<html>error</html>"
+    })
+
+    expect(error.message).toBe("test error")
+    expect(error.statusCode).toBe(500)
+    expect(error.responseBody).toBe("<html>error</html>")
+    expect(error.name).toBe("ArchipelagoTransportError")
+    expect(error).toBeInstanceOf(Error)
+  })
+
+  it("works without optional fields", () => {
+    const error = new ArchipelagoTransportError("basic error")
+
+    expect(error.message).toBe("basic error")
+    expect(error.statusCode).toBeUndefined()
+    expect(error.responseBody).toBeUndefined()
   })
 })
