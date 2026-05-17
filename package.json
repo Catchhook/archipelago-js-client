@@ -1,6 +1,6 @@
 {
   "name": "@archipelago-js/client",
-  "version": "0.2.0",
+  "version": "0.9.0",
   "description": "Core client utilities for Archipelago islands",
   "license": "MIT",
   "type": "module",
@@ -28,11 +28,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/robrace/archipelago.git",
-    "directory": "packages/client"
+    "url": "git+https://github.com/Catchhook/archipelago-js-client.git"
   },
   "bugs": {
-    "url": "https://github.com/robrace/archipelago/issues"
+    "url": "https://github.com/Catchhook/archipelago-js-client/issues"
   },
-  "homepage": "https://github.com/robrace/archipelago/tree/main/packages/client"
+  "homepage": "https://github.com/Catchhook/archipelago-js-client"
 }
